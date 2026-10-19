@@ -100,6 +100,7 @@ body.screen-open>header,body.screen-open>main{visibility:hidden}
   <details id="game-menu">
     <summary aria-label="게임 메뉴">☰</summary>
     <div class="menu-content">
+      <button id="sound-toggle" type="button" aria-pressed="true">♫ 효과음 끄기</button>
       <button id="help">게임 방법</button>
       <button id="credits-menu">사전 출처·라이선스</button>
       <button id="settings">규칙 조정</button>
@@ -288,8 +289,9 @@ function landing(tile){
 function wordReady(tiles){
  tiles.forEach((tile,i)=>{animateElement(tile,[{filter:'brightness(1)'},{filter:'brightness(1.65)',offset:.35},{filter:'brightness(1)'}],{duration:420,delay:i*65,easing:'steps(6,end)'});pixelBurst(tile,i*65);});
 }
-async function revealWords(completed,unlocked,root,oldHand){
- if(reducedMotion())return;
+async function revealWords(completed,unlocked,root,oldHand,sfx){
+ unlocked.forEach((room,branch)=>revealSteps(room).forEach(step=>sfx?.path(220+branch*95+step.distance*150,step.distance+branch)));
+ if(reducedMotion()){await dealCards(oldHand,280,sfx);return;}
  const tile=id=>root.querySelector(`[data-tile="${id}"]`),jobs=[];
  for(const id of completed.cells){pixelBurst(tile(id));jobs.push(animateElement(tile(id),[{filter:'brightness(1.8)'},{filter:'brightness(1)'}],{duration:300,easing:'steps(5,end)'}));}
  root.querySelectorAll(`[data-path-room="${completed.id}"]`).forEach(path=>jobs.push(animateElement(path,[{filter:'brightness(2.6)'},{filter:'brightness(1)'}],{duration:360,easing:'steps(6,end)'})));
@@ -307,16 +309,17 @@ async function revealWords(completed,unlocked,root,oldHand){
   }
   root.querySelectorAll(`[data-room="${room.id}"]`).forEach(el=>jobs.push(animateElement(el,[{opacity:0},{opacity:1}],{delay:600,duration:100})));
  });
- jobs.push(dealCards(oldHand,280));
+  jobs.push(dealCards(oldHand,280,sfx));
  await Promise.all(jobs);
 }
 
 // Real screen positions keep the deck-to-hand motion correct at every viewport.
-async function dealCards(previousIds=new Set(),delay=0){
- if(reducedMotion())return;
+async function dealCards(previousIds=new Set(),delay=0,sfx){
  const deck=document.querySelector('.deck'),origin=deck?.getBoundingClientRect(),hand=document.querySelector('#hand').getBoundingClientRect();
  const x=origin?.width?origin.left+origin.width/2:hand.left-20,y=origin?.width?origin.top+origin.height/2:hand.top+hand.height/2;
  const cards=[...document.querySelectorAll('#hand [data-card]')].filter(el=>!previousIds.has(Number(el.dataset.card)));
+ cards.forEach((_,i)=>sfx?.draw(i,delay+i*65));
+ if(reducedMotion())return;
  await Promise.all(cards.map((card,i)=>{const r=card.getBoundingClientRect();return animateElement(card,[
   {opacity:0,transform:`translate(${x-r.left-r.width/2}px,${y-r.top-r.height/2}px) rotate(-12deg) scale(.65)`},
   {opacity:1,offset:.15},
@@ -325,10 +328,11 @@ async function dealCards(previousIds=new Set(),delay=0){
  ],{duration:380,delay:delay+i*65,easing:'cubic-bezier(.2,.7,.2,1)'});}));
 }
 
-async function discardCards(ids){
- if(reducedMotion())return;
+async function discardCards(ids,sfx){
  const hand=document.querySelector('#hand').getBoundingClientRect();
  const cards=[...document.querySelectorAll('#hand [data-card]')].filter(el=>ids.has(Number(el.dataset.card)));
+ cards.forEach((_,i)=>sfx?.discard(i));
+ if(reducedMotion())return;
  await Promise.all(cards.map(async(card,i)=>{
   const r=card.getBoundingClientRect(),copy=card.cloneNode(true);copy.removeAttribute('data-card');copy.classList.remove('selected');copy.classList.add('flying-card');copy.setAttribute('aria-hidden','true');copy.inert=true;
   Object.assign(copy.style,{left:r.left+'px',top:r.top+'px',width:r.width+'px',height:r.height+'px'});document.body.append(copy);card.style.visibility='hidden';
@@ -337,7 +341,60 @@ async function discardCards(ids){
  }));
 }
 
+// Small synthesized Foley keeps the game self-contained and works without audio assets.
+function createSoundEffects(environment=globalThis){
+ const key='kingle-rogue-sound';let enabled=true,context=null,master=null,reverb=null,noiseBuffer=null;
+ try{if(environment.localStorage?.getItem(key)==='off')enabled=false;}catch{}
+ function initialize(){
+  if(context)return context;const Audio=environment.AudioContext||environment.webkitAudioContext;if(!Audio)return null;
+  try{
+   context=new Audio();master=context.createGain();master.gain.value=.55;master.connect(context.destination);
+   reverb=context.createConvolver();const length=Math.floor(context.sampleRate*.85),impulse=context.createBuffer(1,length,context.sampleRate),data=impulse.getChannelData(0);
+   for(let i=0;i<length;i++)data[i]=(Math.random()*2-1)*Math.pow(1-i/length,3.5);
+   reverb.buffer=impulse;const wet=context.createGain();wet.gain.value=.12;reverb.connect(wet);wet.connect(master);
+   noiseBuffer=context.createBuffer(1,Math.floor(context.sampleRate*.12),context.sampleRate);const noise=noiseBuffer.getChannelData(0);
+   for(let i=0;i<noise.length;i++)noise[i]=Math.random()*2-1;
+   return context;
+  }catch{context=null;return null;}
+ }
+ function resume(){if(!enabled)return null;const c=initialize();if(c?.state==='suspended')try{c.resume()?.catch(()=>{});}catch{}return c;}
+ function connect(node,send=.22){node.connect(master);if(reverb&&send){const amount=context.createGain();amount.gain.value=send;node.connect(amount);amount.connect(reverb);}}
+ function note(frequency,at,duration=.2,volume=.05,wave='triangle',endFrequency=null,send=.28){
+  if(!resume())return;const osc=context.createOscillator(),amp=context.createGain();osc.type=wave;osc.frequency.setValueAtTime(frequency,at);if(endFrequency)osc.frequency.exponentialRampToValueAtTime(endFrequency,at+duration*.85);
+  amp.gain.setValueAtTime(.0001,at);amp.gain.exponentialRampToValueAtTime(Math.max(.0002,volume),at+.008);amp.gain.exponentialRampToValueAtTime(.0001,at+duration);
+  osc.connect(amp);connect(amp,send);osc.start(at);osc.stop(at+duration+.015);
+ }
+ function grit(at,duration=.035,volume=.035,cutoff=1450,send=.14){
+  if(!resume())return;const source=context.createBufferSource(),filter=context.createBiquadFilter(),amp=context.createGain();source.buffer=noiseBuffer;filter.type='lowpass';filter.frequency.setValueAtTime(cutoff,at);filter.Q.value=.7;
+  amp.gain.setValueAtTime(.0001,at);amp.gain.exponentialRampToValueAtTime(Math.max(.0002,volume),at+.003);amp.gain.exponentialRampToValueAtTime(.0001,at+duration);
+  source.connect(filter);filter.connect(amp);connect(amp,send);source.start(at);source.stop(at+duration+.012);
+ }
+ function time(delay=0){const c=resume();return c?c.currentTime+Math.max(0,delay)/1000:null;}
+ function tap(delay=0,strength=1){const at=time(delay);if(at===null)return;grit(at,.032,.055*strength,1500,.12);note(178,at,.105,.085*strength,'sine',104,.24);note(415,at+.003,.035,.022*strength,'triangle',null,.08);}
+ const setEnabled=value=>{enabled=!!value;try{environment.localStorage?.setItem(key,enabled?'on':'off');}catch{}if(enabled)resume();return enabled;};
+ return{
+  get enabled(){return enabled;},
+  unlock(){resume();},
+  setEnabled,
+  toggle(){return setEnabled(!enabled);},
+  start(){const at=time();if(at===null)return;note(196,at,.42,.035,'triangle',null,.42);note(293.66,at+.075,.34,.04,'triangle',null,.42);},
+  cardSelect(){tap(0,.36);},
+  tilePlace(){tap(0,.85);},
+  placeMany(count){for(let i=0;i<Math.min(count,5);i++)tap(i*48,.48);},
+  wordReady(){const at=time();if(at===null)return;[293.66,392,523.25].forEach((f,i)=>note(f,at+i*.075,.25,.052,'triangle',null,.4));},
+  wordConfirm(){const at=time();if(at===null)return;tap(0,1.15);[261.63,392,523.25].forEach((f,i)=>note(f,at+.045+i*.065,.34,.068,'triangle',null,.48));},
+  path(delay=0,step=0){const at=time(delay);if(at===null)return;const scale=[392,493.88,587.33,659.25];grit(at,.024,.03,1850,.25);note(scale[step%scale.length],at+.012,.24,.048,'sine',null,.55);},
+  draw(index=0,delay=0){const at=time(delay);if(at===null)return;grit(at,.025,.03,1650,.12);note(230+(index%3)*24,at,.065,.03,'triangle',null,.08);},
+  discard(index=0){tap(index*38,.55);},
+  erase(){const at=time();if(at===null)return;note(350,at,.1,.035,'triangle',245,.2);grit(at,.045,.025,1050,.08);},
+  room(){tap(0,.42);},
+  reject(){const at=time();if(at===null)return;note(220,at,.11,.035,'sine',165,.12);},
+  stairs(){const at=time();if(at===null)return;[293.66,349.23,440,587.33].forEach((f,i)=>note(f,at+i*.085,.42,.06,'triangle',null,.52));}
+ };
+}
+
 const $=s=>document.querySelector(s);
+const sfx=createSoundEffects();
 let game,config={...DUNGEON_DEFAULTS},selectedCard=null,exchangeMode=false,exchangeIds=new Set(),focusedTile=null,drag=null,pan=null,ignoreClick=false;
 const touchPointers=new Map();let pinch=null;
 let camera={x:0,y:0,scale:1},bounds={minX:0,minY:0},hintUsed=false;
@@ -348,6 +405,7 @@ const labels={normal:'단어의 방',independent:'새 출발의 방',seal:'봉�
 const creditsMarkup=`<h2>사전 출처·라이선스</h2><p>사전 데이터(게임용 가공본)</p><p>출처: 국립국어원 《표준국어대사전》 · <a href="https://github.com/korean-word-game/db" target="_blank" rel="noopener noreferrer">korean-word-game/db</a></p><p>라이선스: <a href="https://creativecommons.org/licenses/by-sa/2.0/kr/" target="_blank" rel="noopener noreferrer">CC BY-SA 2.0 KR</a> (사전 데이터에만 적용)</p>`;
 try{let saved=JSON.parse(localStorage.getItem('jamo-dungeon-config-v2')||'{}');for(let [k,min,max] of [['rooms',8,30],['exchanges',0,10],['sealBase',0,20],['sealStep',0,5],['recoveryEvery',1,10],['floorBase',10,1000],['floorStep',0,500]])if(Number.isInteger(saved[k])&&saved[k]>=min&&saved[k]<=max)config[k]=saved[k];}catch{}
 function toast(msg){$('#toast').textContent=msg;$('#toast').classList.add('show');clearTimeout(toast.timer);toast.timer=setTimeout(()=>$('#toast').classList.remove('show'),3200)}
+function renderSoundToggle(){const button=$('#sound-toggle');button.textContent=`♫ 효과음 ${sfx.enabled?'끄기':'켜기'}`;button.setAttribute('aria-pressed',String(sfx.enabled));button.title=`효과음 ${sfx.enabled?'켜짐':'꺼짐'}`;}
 function show(html){$('#game-menu').open=false;$('#dialog-content').innerHTML=html;if(!$('#dialog').open)$('#dialog').showModal()}
 function pos(t){return {x:(t.x-bounds.minX+1)*STEP,y:(t.y-bounds.minY+1)*STEP};}
 function roomName(r){return r.id===0?'입구의 두 글자':labels[r.kind];}
@@ -362,9 +420,9 @@ function beginPinch(){let ids=[...touchPointers.keys()].slice(0,2),a=touchPointe
 function updatePinch(){if(!pinch)return;let a=touchPointers.get(pinch.ids[0]),b=touchPointers.get(pinch.ids[1]);if(!a||!b)return;let distance=Math.max(1,Math.hypot(b.x-a.x,b.y-a.y)),mid=mapPoint((a.x+b.x)/2,(a.y+b.y)/2),scale=Math.max(.22,Math.min(1.8,pinch.scale*distance/pinch.distance));if(Math.abs(distance-pinch.distance)>3)pinch.moved=true;camera.scale=scale;camera.x=mid.x-pinch.worldX*scale;camera.y=mid.y-pinch.worldY*scale;updateCamera();}
 function suppressMapClick(){ignoreClick=true;setTimeout(()=>ignoreClick=false,0);}
 function rebaseTouchGesture(){if(touchPointers.size>=2)beginPinch();else if(touchPointers.size===1){let [pointerId,p]=touchPointers.entries().next().value;pinch=null;pan={pointerId,x:p.x,y:p.y,cx:camera.x,cy:camera.y,moved:true};}else{pinch=null;pan=null;}}
-async function start(){$('#dialog').close();document.body.classList.remove('screen-open');$('#title-screen').hidden=true;$('#result-screen').hidden=true;$('#game-menu').open=false;game=new Dungeon(words,config);selectedCard=null;exchangeMode=false;exchangeIds.clear();focusedTile=null;hintUsed=false;let ts=[...game.tiles.values()];bounds={minX:Math.min(...ts.map(t=>t.x)),minY:Math.min(...ts.map(t=>t.y))};setInputBusy(true);try{render();requestAnimationFrame(focusRoom);await dealCards();}finally{setInputBusy(false);}}
-function selectRoom(id,center=false){if(game.select(id)){$('#game-menu').open=false;selectedCard=null;focusedTile=null;exchangeMode=false;exchangeIds.clear();$('#word-input').value='';render();if(center)focusRoom();}}
-function render(){renderFloor();renderMap();renderInfo();renderHand();$('#score').textContent=game.total;$('#progress').textContent=`${game.used.length} / ${game.rooms.length}`;$('#seed').textContent=`MAP ${game.seed.toString(36).toUpperCase()}`;$('#map-title').textContent=game.over?(game.won?'탐험 완료':'탐험 종료'):roomName(game.active);$('#intro').hidden=game.floor>1||game.used.length>0||game.usedIds().length>0;let state=game.status(),signature=state.ready?game.activeId+':'+state.word:'';if(signature&&signature!==readySignature)wordReady(game.active.cells.map(id=>document.querySelector(`[data-tile="${id}"]`)));readySignature=signature;}
+async function start(){sfx.unlock();sfx.start();$('#dialog').close();document.body.classList.remove('screen-open');$('#title-screen').hidden=true;$('#result-screen').hidden=true;$('#game-menu').open=false;game=new Dungeon(words,config);selectedCard=null;exchangeMode=false;exchangeIds.clear();focusedTile=null;hintUsed=false;readySignature='';let ts=[...game.tiles.values()];bounds={minX:Math.min(...ts.map(t=>t.x)),minY:Math.min(...ts.map(t=>t.y))};setInputBusy(true);try{render();requestAnimationFrame(focusRoom);await dealCards(new Set(),0,sfx);}finally{setInputBusy(false);}}
+function selectRoom(id,center=false){if(game.select(id)){sfx.room();$('#game-menu').open=false;selectedCard=null;focusedTile=null;exchangeMode=false;exchangeIds.clear();$('#word-input').value='';render();if(center)focusRoom();}}
+function render(){renderFloor();renderMap();renderInfo();renderHand();$('#score').textContent=game.total;$('#progress').textContent=`${game.used.length} / ${game.rooms.length}`;$('#seed').textContent=`MAP ${game.seed.toString(36).toUpperCase()}`;$('#map-title').textContent=game.over?(game.won?'탐험 완료':'탐험 종료'):roomName(game.active);$('#intro').hidden=game.floor>1||game.used.length>0||game.usedIds().length>0;let state=game.status(),signature=state.ready?game.activeId+':'+state.word:'';if(signature&&signature!==readySignature){wordReady(game.active.cells.map(id=>document.querySelector(`[data-tile="${id}"]`)));sfx.wordReady();}readySignature=signature;}
 function renderMap(){let active=game.active,status=game.status(),ts=[...game.tiles.values()],paths=[],markers=[],frames=[];
  for(let r of game.rooms){let ps=r.cells.map(id=>pos(game.tiles.get(id))),selected=r.id===game.activeId&&r.state==='open',open=r.state!=='locked',draftCount=game.roomCardCount(r);
   if(selected){let x=Math.min(...ps.map(p=>p.x))-6,y=Math.min(...ps.map(p=>p.y))-6,w=Math.max(...ps.map(p=>p.x))-x+82,h=Math.max(...ps.map(p=>p.y))-y+82;frames.push(`<div class="word-frame" style="left:${x}px;top:${y}px;width:${w}px;height:${h}px"><span>${r.id+1}번 단어 · ${draftCount}장 준비</span></div>`);}
@@ -389,16 +447,16 @@ function renderHand(){let available=game.availableHand(),missing=Math.max(0,HAND
  $('#hand').innerHTML=available.map(c=>`<button class="card ${isVowel(c.j)?'vowel':''} ${selectedCard===c.id||exchangeIds.has(c.id)?'selected':''}" data-card="${c.id}" aria-label="${c.j} 카드 ${POINTS[c.j]}점" ${game.over?'disabled':''}><span class="type">${isVowel(c.j)?'모음':'자음'}</span>${c.j}<span class="points">${POINTS[c.j]}</span></button>`).join('')+Array.from({length:HAND_SIZE-available.length},()=>'<span class="card-placeholder" aria-label="배치 중"></span>').join('');
  $('#supply').disabled=!game.canSupply;$('#supply').textContent=missing?`보충 +${missing}`:'보충';$('#supply').setAttribute('aria-label',`보충 · 손패 ${available.length}장, ${missing}장 받기`);$('#supply').title=`열린 방의 배치 카드 ${staged}장을 잠그고 손패 빈자리 ${missing}장 보충 · 공통 기회 1회`;$('#grave-count').textContent='무덤 '+game.grave.length;$('#exchanges').textContent=game.exchanges;$('#exchange-mode').firstChild.textContent=exchangeMode?'취소 ':'교환 ';$('#exchange-mode').disabled=game.over||!game.exchanges;$('#exchange-confirm').hidden=!exchangeMode;$('#exchange-confirm').disabled=!exchangeIds.size;$('#exchange-confirm').textContent=`교환 ${exchangeIds.size}`;$('#recovery').textContent=`${game.config.recoveryEvery-game.used.length%game.config.recoveryEvery}단어 뒤 교환 +1`;
 }
-function chooseCard(id){if(game.over)return;if(exchangeMode){exchangeIds.has(id)?exchangeIds.delete(id):exchangeIds.add(id);}else selectedCard=selectedCard===id?null:id;renderHand();}
-function dropCard(id,tileId){if(game.over||exchangeMode)return;let t=game.tiles.get(tileId);if(!t||t.fixed){toast('확정된 글자는 바꿀 수 없어요. 빈 타일에 놓아 주세요.');return;}
- if(!game.active.cells.includes(tileId)){let r=game.openRooms.find(r=>r.cells.includes(tileId));if(!r){toast('이 길은 아직 잠겨 있어요. 연결된 방을 먼저 완성하세요.');return;}game.select(r.id);}
- let choices=game.choices(id,tileId);if(!choices.length){toast('이 자모는 더 조합할 수 없어요. 다른 타일에 놓거나 ↶ 되돌리기를 눌러 보세요.');render();return;}
- const apply=kind=>{game.place(id,tileId,kind);selectedCard=null;focusedTile=tileId;render();landing(document.querySelector(`[data-tile="${tileId}"]`));};
+function chooseCard(id){if(game.over)return;if(exchangeMode){exchangeIds.has(id)?exchangeIds.delete(id):exchangeIds.add(id);}else selectedCard=selectedCard===id?null:id;sfx.cardSelect();renderHand();}
+function dropCard(id,tileId){if(game.over||exchangeMode)return;let t=game.tiles.get(tileId);if(!t||t.fixed){toast('확정된 글자는 바꿀 수 없어요. 빈 타일에 놓아 주세요.');sfx.reject();return;}
+ if(!game.active.cells.includes(tileId)){let r=game.openRooms.find(r=>r.cells.includes(tileId));if(!r){toast('이 길은 아직 잠겨 있어요. 연결된 방을 먼저 완성하세요.');sfx.reject();return;}game.select(r.id);}
+ let choices=game.choices(id,tileId);if(!choices.length){toast('이 자모는 더 조합할 수 없어요. 다른 타일에 놓거나 ↶ 되돌리기를 눌러 보세요.');sfx.reject();render();return;}
+ const apply=kind=>{if(game.place(id,tileId,kind))sfx.tilePlace();selectedCard=null;focusedTile=tileId;render();landing(document.querySelector(`[data-tile="${tileId}"]`));};
  if(choices.length===1)apply(choices[0].kind);else{show(`<div class="overline">어떻게 조합할까요?</div><h2>같은 카드, 다른 글자</h2><div class="choice-row">${choices.map(c=>`<button data-choice="${c.kind}"><span>${c.label}에 넣기</span><strong>${c.glyph}</strong></button>`).join('')}</div>`);$('#dialog-content').onclick=e=>{let b=e.target.closest('[data-choice]');if(b){$('#dialog').close();apply(Number(b.dataset.choice));$('#dialog-content').onclick=null;}};}
 }
-function tileAction(tileId){let t=game.tiles.get(tileId);if(!t||game.over)return;if(selectedCard!==null){dropCard(selectedCard,tileId);return;}let open=game.openRooms.filter(r=>r.cells.includes(tileId));if(!open.length){if(t.fixed)toast(`‘${t.fixed}’은 확정된 글자예요.`);else toast('잠긴 타일이에요. 연결된 방을 먼저 완성하세요.');return;}if(!open.some(r=>r.id===game.activeId))game.select(open[0].id);focusedTile=tileId;render();}
-$('#world').onclick=e=>{if(ignoreClick){ignoreClick=false;return;}let clear=e.target.closest('[data-clear]');if(clear){game.clearTile(clear.dataset.clear);game.checkEnd();render();if(game.over)showResult();return;}let room=e.target.closest('[data-room]');if(room){selectRoom(Number(room.dataset.room));return;}let tile=e.target.closest('[data-tile]');if(tile)tileAction(tile.dataset.tile);};
-$('#world').onkeydown=e=>{let tile=e.target.closest('[data-tile]');if(!tile)return;if(e.key==='Enter'||e.key===' '){e.preventDefault();tileAction(tile.dataset.tile);}else if(e.key==='Backspace'||e.key==='Delete'){e.preventDefault();game.clearTile(tile.dataset.tile);game.checkEnd();render();if(game.over)showResult();}};
+function tileAction(tileId){let t=game.tiles.get(tileId);if(!t||game.over)return;if(selectedCard!==null){dropCard(selectedCard,tileId);return;}let open=game.openRooms.filter(r=>r.cells.includes(tileId));if(!open.length){if(t.fixed)toast(`‘${t.fixed}’은 확정된 글자예요.`);else toast('잠긴 타일이에요. 연결된 방을 먼저 완성하세요.');sfx.reject();return;}if(!open.some(r=>r.id===game.activeId)){game.select(open[0].id);sfx.room();}else sfx.cardSelect();focusedTile=tileId;render();}
+$('#world').onclick=e=>{if(ignoreClick){ignoreClick=false;return;}let clear=e.target.closest('[data-clear]');if(clear){if(game.clearTile(clear.dataset.clear))sfx.erase();game.checkEnd();render();if(game.over)showResult();return;}let room=e.target.closest('[data-room]');if(room){selectRoom(Number(room.dataset.room));return;}let tile=e.target.closest('[data-tile]');if(tile)tileAction(tile.dataset.tile);};
+$('#world').onkeydown=e=>{let tile=e.target.closest('[data-tile]');if(!tile)return;if(e.key==='Enter'||e.key===' '){e.preventDefault();tileAction(tile.dataset.tile);}else if(e.key==='Backspace'||e.key==='Delete'){e.preventDefault();if(game.clearTile(tile.dataset.tile))sfx.erase();game.checkEnd();render();if(game.over)showResult();}};
 $('#room-list').onclick=e=>{let b=e.target.closest('[data-room]');if(b)selectRoom(Number(b.dataset.room),true);};
 $('#hand').onpointerdown=e=>{let b=e.target.closest('[data-card]');if(!b||b.disabled||e.button!==0)return;e.preventDefault();drag={id:Number(b.dataset.card),pointerId:e.pointerId,x:e.clientX,y:e.clientY,moved:false};$('#hand').setPointerCapture(e.pointerId);};
 $('#hand').onclick=e=>{if(e.detail!==0)return;let b=e.target.closest('[data-card]');if(b&&!b.disabled)chooseCard(Number(b.dataset.card));};
@@ -420,15 +478,16 @@ window.addEventListener('pointerup',e=>{if(drag&&e.pointerId===drag.pointerId){l
 window.addEventListener('pointercancel',e=>{if(drag&&e.pointerId===drag.pointerId){drag=null;$('#drag-ghost').hidden=true;document.querySelectorAll('.drop-ok').forEach(t=>t.classList.remove('drop-ok'));}if(touchPointers.has(e.pointerId)){touchPointers.delete(e.pointerId);suppressMapClick();rebaseTouchGesture();}else if(pan&&pan.pointerId===e.pointerId)pan=null;});
 $('#map').addEventListener('wheel',e=>{e.preventDefault();zoom(e.deltaY<0?1.1:1/1.1,e.clientX,e.clientY);},{passive:false});
 $('#zoom-in').onclick=()=>zoom(1.2);$('#zoom-out').onclick=()=>zoom(1/1.2);$('#focus').onclick=focusRoom;$('#fit').onclick=fitMap;
-$('#undo').onclick=()=>{game.undo();selectedCard=null;render();};$('#clear').onclick=()=>{game.clearActive();selectedCard=null;render();if(game.over)showResult();};
-$('#word-form').onsubmit=e=>{e.preventDefault();if(game.over)return;let word=$('#word-input').value.trim().normalize('NFC');if(!game.autoPlace(word)){toast('길이·고정 글자·보유 카드가 맞는지 확인해 주세요.');return;}selectedCard=null;exchangeMode=false;exchangeIds.clear();render();};
+$('#undo').onclick=()=>{if(game.undo())sfx.erase();selectedCard=null;render();};$('#clear').onclick=()=>{let hadCards=game.roomCardCount(game.active)>0;game.clearActive();if(hadCards)sfx.erase();selectedCard=null;render();if(game.over)showResult();};
+$('#word-form').onsubmit=e=>{e.preventDefault();if(game.over)return;let word=$('#word-input').value.trim().normalize('NFC');if(!game.autoPlace(word)){toast('길이·고정 글자·보유 카드가 맞는지 확인해 주세요.');sfx.reject();return;}sfx.placeMany(word.length);selectedCard=null;exchangeMode=false;exchangeIds.clear();render();};
 $('#confirm').onclick=async()=>{
  if(animating)return;
  const completed=game.active,oldHand=new Set(game.hand.map(c=>c.id));
  const result=game.confirm();if(!result)return;
+ sfx.wordConfirm();
  animating=true;document.querySelector('main').inert=true;document.querySelector('header').inert=true;
  selectedCard=null;exchangeMode=false;exchangeIds.clear();focusedTile=null;$('#word-input').value='';
- try{render();await revealWords(completed,result.unlocked,$('#world'),oldHand);}
+ try{render();await revealWords(completed,result.unlocked,$('#world'),oldHand,sfx);}
  finally{animating=false;document.querySelector('main').inert=false;document.querySelector('header').inert=false;}
  toast(result.unlocked.some(r=>r.kind==='independent')?'5단어 완성 · 별실 개방':`+${result.score} · 손패 ${game.availableHand().length}장`);focusRoom();
  if(game.canDescend)toast(`지하 ${game.floor}층 · 계단 개방`);if(game.over)showResult();
@@ -438,11 +497,11 @@ $('#exchange-confirm').onclick=async()=>{
  if(animating||!exchangeIds.size||!game.exchanges||game.over)return;
  const ids=new Set(exchangeIds),previousIds=new Set(game.hand.map(c=>c.id));
  setInputBusy(true);
- try{await discardCards(ids);if(game.exchange([...ids])){exchangeMode=false;exchangeIds.clear();render();await dealCards(previousIds);toast(`교환 ${ids.size}장`);}}
+ try{await discardCards(ids,sfx);if(game.exchange([...ids])){exchangeMode=false;exchangeIds.clear();render();await dealCards(previousIds,0,sfx);toast(`교환 ${ids.size}장`);}}
  finally{setInputBusy(false);}
  if(game.over)showResult();
 };
-$('#hint').onclick=()=>{hintUsed=true;let move=game.findMove(game.active)||game.findMove();if(!move){toast('현재 손패로 열 수 있는 방이 없어요. 손패를 보충하거나 교환해 보세요.');return;}show(`<div class="overline">탐험 도움</div><h2>‘${move.word}’을 만들 수 있어요.</h2><p>${move.room.id+1}번 방 · ${game.wordScore(move.plan.score,move.room)}점<br>현재 배치와 열린 칸에 맞는 단어입니다.</p><button id="use-hint" class="primary">해당 방에 배치하기</button>`);$('#use-hint').onclick=()=>{$('#dialog').close();game.autoPlace(move.word,move.room);selectedCard=null;exchangeMode=false;exchangeIds.clear();render();focusRoom();};};
+$('#hint').onclick=()=>{hintUsed=true;let move=game.findMove(game.active)||game.findMove();if(!move){toast('현재 손패로 열 수 있는 방이 없어요. 손패를 보충하거나 교환해 보세요.');sfx.reject();return;}show(`<div class="overline">탐험 도움</div><h2>‘${move.word}’을 만들 수 있어요.</h2><p>${move.room.id+1}번 방 · ${game.wordScore(move.plan.score,move.room)}점<br>현재 배치와 열린 칸에 맞는 단어입니다.</p><button id="use-hint" class="primary">해당 방에 배치하기</button>`);$('#use-hint').onclick=()=>{$('#dialog').close();game.autoPlace(move.word,move.room);sfx.placeMany(move.word.length);selectedCard=null;exchangeMode=false;exchangeIds.clear();render();focusRoom();};};
 function showTitle(){if($('#dialog').open)$('#dialog').close();document.body.classList.add('screen-open');$('#game-menu').open=false;$('#result-screen').hidden=true;$('#title-screen').hidden=false;document.querySelector('header').inert=true;document.querySelector('main').inert=true;let best=0;try{best=Number(localStorage.getItem('jamo-dungeon-best')||0);}catch{}$('#title-best').textContent=best.toLocaleString('ko-KR');$('#begin-game').focus();}
 function showResult(manual=false){if(!game)return;game.over=true;let previous=0;try{previous=Number(localStorage.getItem('jamo-dungeon-best')||0);}catch{}let high=Math.max(game.total,previous);try{localStorage.setItem('jamo-dungeon-best',String(high));}catch{}$('#dialog').close();$('#game-menu').open=false;render();$('#result-kicker').textContent=game.won?'DUNGEON CLEARED':manual?'RUN COMPLETE':'RUN OVER';$('#result-heading').textContent=game.won?'던전 정복':'탐험의 기록';$('#result-score').textContent=game.total.toLocaleString('ko-KR');$('#result-floor').textContent=String(game.floor).padStart(2,'0')+'F';$('#result-words').textContent=game.totalWords.toLocaleString('ko-KR');$('#result-best').textContent=high.toLocaleString('ko-KR');$('#result-message').textContent=(manual?'현재 점수로 탐험을 마쳤어요.':game.won?'모든 방을 열었어요.':game.endReason||'이번 탐험이 끝났어요.')+(hintUsed?' · 단어 도움 사용 판':'');document.body.classList.add('screen-open');document.querySelector('header').inert=true;document.querySelector('main').inert=true;$('#result-screen').hidden=false;$('#result-restart').focus();}
 $('#finish').onclick=()=>{if(game.over){showResult(true);return;}show('<h2>탐험을 마칠까요?</h2><p>현재 점수를 기록하고 결과를 확인합니다.</p><button id="end-confirm" class="primary">현재 점수로 마치기</button>');$('#end-confirm').onclick=()=>showResult(true);};
@@ -455,6 +514,8 @@ $('#close-dialog').onclick=()=>{$('#dialog').close();$('#dialog-content').onclic
 $('#begin-game').onclick=()=>start();
 $('#result-restart').onclick=()=>start();
 $('#result-title').onclick=showTitle;
+$('#sound-toggle').onclick=()=>{let enabled=sfx.toggle();sfx.unlock();renderSoundToggle();toast(enabled?'효과음 켜짐':'효과음 꺼짐');};
+renderSoundToggle();
 window.addEventListener('resize',()=>{if(game)updateCamera();});
 showTitle();
 
@@ -467,10 +528,10 @@ function renderFloor(){
  $('#descend').disabled=!game.canDescend;
  $('#descend').textContent='▟';
 }
-$('#descend').onclick=()=>{if(!game.canDescend)return;show('<h2>다음 층으로 내려갈까요?</h2><p>현재 층의 남은 방은 떠나며, 미완성 타일에 잠긴 카드는 무덤으로 보냅니다. 손패와 누적 점수는 유지하고 교환 2회를 회복합니다. 다음 층 목표는 '+(game.floorTarget+game.config.floorStep)+'점입니다.</p><button id="descend-confirm" class="primary">내려가기</button>');$('#descend-confirm').onclick=()=>{if(!game.descend())return;$('#dialog').close();selectedCard=null;exchangeMode=false;exchangeIds.clear();focusedTile=null;let ts=[...game.tiles.values()];bounds={minX:Math.min(...ts.map(t=>t.x)),minY:Math.min(...ts.map(t=>t.y))};$('#word-input').value='';render();focusRoom();toast('지하 '+game.floor+'층 · 새로운 두 칸에서 시작합니다.');if(game.over)showResult();};};
+$('#descend').onclick=()=>{if(!game.canDescend)return;show('<h2>다음 층으로 내려갈까요?</h2><p>현재 층의 남은 방은 떠나며, 미완성 타일에 잠긴 카드는 무덤으로 보냅니다. 손패와 누적 점수는 유지하고 교환 2회를 회복합니다. 다음 층 목표는 '+(game.floorTarget+game.config.floorStep)+'점입니다.</p><button id="descend-confirm" class="primary">내려가기</button>');$('#descend-confirm').onclick=()=>{if(!game.descend())return;sfx.stairs();$('#dialog').close();selectedCard=null;exchangeMode=false;exchangeIds.clear();focusedTile=null;let ts=[...game.tiles.values()];bounds={minX:Math.min(...ts.map(t=>t.x)),minY:Math.min(...ts.map(t=>t.y))};$('#word-input').value='';render();focusRoom();toast('지하 '+game.floor+'층 · 새로운 두 칸에서 시작합니다.');if(game.over)showResult();};};
 $('#annex-progress').onclick=()=>{let room=game.rooms.find(r=>r.kind==='independent');if(!room)return;if(room.state==='open'){selectRoom(room.id,true);return;}show(`<h2>별실</h2><p>이 층에서 5단어를 완성하면 독립 단어 슬롯이 한 곳 열립니다.<br>현재 ${Math.min(game.used.length,5)} / 5 · 층당 최대 1곳</p>`);};
 
-$('#supply').onclick=async()=>{if(animating||!game.canSupply)return;const previous=new Set(game.hand.map(c=>c.id)),used=new Set(game.usedIds()),locked=game.hand.filter(c=>used.has(c.id)).length,before=game.availableHand().length;if(!game.supply())return;const drawn=Math.max(0,game.availableHand().length-(before-locked));selectedCard=null;exchangeMode=false;exchangeIds.clear();setInputBusy(true);try{render();await dealCards(previous);}finally{setInputBusy(false);}toast(`배치 카드 ${locked}장 잠금 · 손패 ${drawn}장 보충`);if(game.over)showResult();};
+$('#supply').onclick=async()=>{if(animating||!game.canSupply)return;const previous=new Set(game.hand.map(c=>c.id)),used=new Set(game.usedIds()),locked=game.hand.filter(c=>used.has(c.id)).length,before=game.availableHand().length;if(!game.supply())return;const drawn=Math.max(0,game.availableHand().length-(before-locked));selectedCard=null;exchangeMode=false;exchangeIds.clear();setInputBusy(true);try{render();await dealCards(previous,0,sfx);}finally{setInputBusy(false);}toast(`배치 카드 ${locked}장 잠금 · 손패 ${drawn}장 보충`);if(game.over)showResult();};
 })();</script>
 </body>
 </html>
