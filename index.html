@@ -118,6 +118,10 @@ body.screen-open>header,body.screen-open>main{visibility:hidden}
   .hand-controls .exchange{gap:3px}
   .hand-controls .exchange button{min-width:42px;padding:5px 5px;font-size:9px}
 }
+
+/* Keep word actions directly above the hand controls */
+@media(max-width:800px){.word-action{top:auto;bottom:calc(100px + 54px + 8px + env(safe-area-inset-bottom));}}
+@media(max-width:480px){.word-action{bottom:calc(106px + 46px + 8px + env(safe-area-inset-bottom));}.map-tools{top:10px;}}
 </style>
 </head>
 <body class="screen-open">
