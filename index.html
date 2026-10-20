@@ -83,6 +83,41 @@ body.screen-open>header,body.screen-open>main{visibility:hidden}
 @media(max-width:480px){.warehouse #warehouse-toggle{min-width:42px;width:42px;font-size:8px}.warehouse-tray{right:0}.warehouse-slots{gap:5px}.warehouse-slot,.warehouse .warehouse-card{height:58px}.warehouse .warehouse-card{font-size:23px}}
 
 .challenge-date{margin:12px 0 0;color:#91aaa3;font:10px monospace;letter-spacing:1px}.mode-actions{display:grid;grid-template-columns:1fr;gap:8px;margin:14px auto 0;max-width:300px}.mode-actions button{min-height:42px;font-size:12px}.mode-actions .screen-primary{margin-top:0}.run-mode{color:#edc478;font-size:10px;letter-spacing:1px;white-space:nowrap}.score-submit-area{display:grid;grid-template-columns:auto minmax(90px,1fr) auto auto;align-items:center;gap:8px;margin:16px 0 8px;text-align:left}.score-submit-area[hidden]{display:none}.score-submit-area label{font-size:11px;color:#9ab0a8}.score-submit-area input{height:38px}.score-submit-area button{font-size:11px;padding:8px 10px;white-space:nowrap}.score-submit-area p{grid-column:1/-1;min-height:16px;margin:0;text-align:center;color:#9eb9aa;font-size:11px}.leaderboard{width:min(520px,calc(100vw - 32px));text-align:left}.leaderboard h2{margin:8px 0 12px}.rank-tabs{display:flex;gap:8px;margin-bottom:9px}.rank-tabs button{flex:1;font-size:11px}.rank-tabs button[aria-pressed="true"]{border-color:#edc478;color:#f6d890}.rank-period{margin:0 0 9px;color:#90aaa4;font-size:10px}.rank-list{list-style:none;padding:0;margin:0;max-height:min(45vh,360px);overflow:auto;border-block:1px solid #34494d}.rank-list li{display:grid;grid-template-columns:36px 1fr auto;align-items:center;gap:10px;padding:8px 5px;border-bottom:1px solid #263b40;font-size:12px}.rank-list li:last-child{border-bottom:0}.rank-position{color:#edc478;font:11px monospace}.rank-name{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.rank-score{color:#eee1bd;font:13px monospace}.rank-detail{grid-column:2/-1;color:#7f9992;font-size:9px;margin-top:-7px}.rank-status{min-height:20px;margin:9px 0 0;color:#a0b4ad;font-size:11px}#dialog:has(.leaderboard){width:fit-content;max-width:calc(100vw - 24px);padding:24px}#dialog:has(.leaderboard) #close-dialog{margin-top:10px}@media(max-width:600px){.mode-actions{gap:6px}.mode-actions button{font-size:10px;padding:8px 5px}.run-mode{font-size:8px}.score-submit-area{grid-template-columns:auto 1fr;gap:7px}.score-submit-area button{grid-row:auto}.score-submit-area button:nth-of-type(1){grid-column:1/2}.score-submit-area button:nth-of-type(2){grid-column:2/3}.score-submit-area p{grid-column:1/-1}.leaderboard{width:min(460px,calc(100vw - 52px))}}
+
+/* Hand controls and floating word actions */
+.map-tools{top:16px;left:16px;right:auto;bottom:auto;z-index:12}
+.word-action{position:fixed;top:calc(68px + env(safe-area-inset-top) + 10px);right:18px;bottom:auto;left:auto;width:min(390px,calc(100vw - 36px));max-width:none;z-index:35}
+.hand-dock{overflow:visible}
+.hand-controls{position:absolute;left:0;right:0;top:-54px;display:flex;justify-content:space-between;align-items:center;pointer-events:none;z-index:24}
+.hand-controls>*{pointer-events:auto}
+.hand-controls .warehouse{position:relative;align-self:auto;flex:0 0 auto}
+.hand-controls .warehouse #warehouse-toggle{width:auto;min-width:78px;padding:7px 9px;font-size:10px}
+.hand-controls .warehouse #warehouse-count{display:inline;margin:0 0 0 4px;font-size:9px}
+.hand-controls .warehouse-tray{left:0;right:auto;top:auto;bottom:calc(100% + 8px);width:min(260px,calc(100vw - 28px));z-index:40}
+.hand-controls .exchange{width:auto;min-width:0;text-align:right;display:flex;flex-direction:row;align-items:center;justify-content:flex-end;gap:6px}
+.hand-controls .shared-chances{font-size:10px;color:#c3cdbd;white-space:nowrap}
+.hand-controls .shared-chances b{display:inline;margin:0 0 0 4px;font-size:11px;color:#f0cf8b}
+.hand-controls .exchange button{width:auto;min-width:54px;padding:6px 9px;font-size:11px;white-space:nowrap}
+@media(max-width:800px){
+  .map-tools{top:10px;left:10px}
+  .word-action{top:calc(58px + env(safe-area-inset-top) + 8px);right:8px;width:min(360px,calc(100vw - 16px));padding:8px}
+  .hand-controls{top:-48px}
+  .hand-controls .warehouse #warehouse-toggle{min-width:70px;padding:6px 7px}
+  .hand-controls .exchange{gap:4px}
+  .hand-controls .exchange button{min-width:48px;padding:5px 7px;font-size:10px}
+  .hand-controls .shared-chances{font-size:8px}
+  .hand-controls .shared-chances b{font-size:9px}
+}
+@media(max-width:480px){
+  .map-tools{top:168px;left:8px;gap:4px}
+  .map-tools button{width:29px;height:28px}
+  .word-action{right:6px;width:calc(100vw - 12px);padding:7px}
+  .hand-controls{top:-46px}
+  .hand-controls .warehouse #warehouse-toggle{min-width:64px;padding:5px 6px;font-size:9px}
+  .hand-controls .warehouse #warehouse-count{font-size:8px}
+  .hand-controls .exchange{gap:3px}
+  .hand-controls .exchange button{min-width:42px;padding:5px 5px;font-size:9px}
+}
 </style>
 </head>
 <body class="screen-open">
@@ -141,10 +176,16 @@ body.screen-open>header,body.screen-open>main{visibility:hidden}
     <section class="map-shell">
       <div id="map" aria-label="격자 던전 지도" tabindex="0"><div id="world"></div><div class="map-vignette"></div></div>
       <div class="map-tools"><button id="zoom-out" aria-label="지도 축소">−</button><span id="zoom-label">100%</span><button id="zoom-in" aria-label="지도 확대">+</button><button id="focus" aria-label="현재 단어로 이동" title="현재 단어">◎</button><button id="fit" aria-label="전체 지도" title="전체 지도">⊞</button></div>
-      <section class="word-action" aria-label="단어 확정"><div class="word-feedback"><span id="condition"></span><span id="status" role="status" aria-live="polite"></span></div><div class="action-row"><div id="pattern"></div><button id="undo" aria-label="한 수 되돌리기" title="되돌리기">↶</button><button id="clear" aria-label="배치 비우기" title="비우기">×</button><button id="confirm" class="primary" disabled>확정</button></div></section>
     </section>
+    <section class="word-action" aria-label="단어 확정"><div class="word-feedback"><span id="condition"></span><span id="status" role="status" aria-live="polite"></span></div><div class="action-row"><div id="pattern"></div><button id="undo" aria-label="한 수 되돌리기" title="되돌리기">↶</button><button id="clear" aria-label="배치 비우기" title="비우기">×</button><button id="confirm" class="primary" disabled>확정</button></div></section>
   </div>
-  <section class="hand-dock"><div class="deck" title="남은 카드"><span class="deck-icon" aria-hidden="true">▤</span><span id="deck-count"></span><small id="grave-count" title="폐기된 잠금 카드 · 덱에 복귀하지 않음"></small></div><div id="hand" aria-label="자모 카드 손패"></div><div class="warehouse"><button id="warehouse-toggle" type="button" aria-expanded="false" aria-controls="warehouse-tray" title="보관 카드 보기"><span>창고</span> <b id="warehouse-count">0/3</b></button><div id="warehouse-tray" class="warehouse-tray" hidden><div class="warehouse-heading"><b>자모 창고</b><span>3칸</span></div><div id="warehouse-slots" class="warehouse-slots" aria-label="창고 카드"></div><small>손패 카드를 끌어 보관하고, 창고 카드도 타일에 바로 놓을 수 있어요.</small></div></div><div class="exchange"><span class="shared-chances">공통 기회 <b id="exchanges">3</b></span><button id="supply" aria-label="손패 8장까지 보충">보충</button><button id="exchange-mode" aria-label="카드 교환" title="교환할 카드 선택">교환</button><button id="exchange-confirm" class="primary" hidden>교환</button></div></section>
+  <section class="hand-dock">
+    <div class="hand-controls">
+      <div class="warehouse"><button id="warehouse-toggle" type="button" aria-expanded="false" aria-controls="warehouse-tray" title="보관 카드 보기"><span>창고</span> <b id="warehouse-count">0/3</b></button><div id="warehouse-tray" class="warehouse-tray" hidden><div class="warehouse-heading"><b>자모 창고</b><span>3칸</span></div><div id="warehouse-slots" class="warehouse-slots" aria-label="창고 카드"></div><small>손패 카드를 끌어 보관하고, 창고 카드도 타일에 바로 놓을 수 있어요.</small></div></div>
+      <div class="exchange"><span class="shared-chances">공통 기회 <b id="exchanges">3</b></span><button id="supply" aria-label="손패 8장까지 보충">보충</button><button id="exchange-mode" aria-label="카드 교환" title="교환할 카드 선택">교환</button><button id="exchange-confirm" class="primary" hidden>교환</button></div>
+    </div>
+    <div class="deck" title="남은 카드"><span class="deck-icon" aria-hidden="true">▤</span><span id="deck-count"></span><small id="grave-count" title="폐기된 잠금 카드 · 덱에 복귀하지 않음"></small></div><div id="hand" aria-label="자모 카드 손패"></div>
+  </section>
 </main>
 
 <section id="result-screen" class="game-screen result-screen" hidden aria-labelledby="result-heading">
