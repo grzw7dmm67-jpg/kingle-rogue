@@ -281,8 +281,9 @@ function planWord(word,anchor,hand){if(anchor&&!word.startsWith(anchor))return n
 function shuffle(a){for(let i=a.length-1;i>0;i--){let j=Math.floor(Math.random()*(i+1));[a[i],a[j]]=[a[j],a[i]];}return a;}
 
 const DUNGEON_DEFAULTS={rooms:12,exchanges:3,sealBase:8,sealStep:2,recoveryEvery:3,floorBase:120,floorStep:60};
-const HAND_SIZE=8,STORAGE_SIZE=3,ANNEX_WORDS=5,FIRST_FLOOR_THREE_LETTER_CHANCE=.2;
+const HAND_SIZE=8,STORAGE_SIZE=3,ANNEX_WORDS=5,MIN_THREE_LETTER_ROOMS=3;
 function seeded(seed){return ()=>{seed|=0;seed=seed+0x6D2B79F5|0;let t=Math.imul(seed^seed>>>15,1|seed);t=t+Math.imul(t^t>>>7,61|t)^t;return ((t^t>>>14)>>>0)/4294967296;};}
+function threeLetterCountForFloor(floor,seed=1){if(floor<=3)return Math.max(1,floor);let rng=seeded((seed^Math.imul(floor,0x9e3779b9))>>>0),chance=Math.min(.8,.25+(floor-4)*.05),count=MIN_THREE_LETTER_ROOMS;for(let i=0;i<floor-3;i++)if(rng()<chance)count++;return count;}
 const cellKey=(x,y)=>`${x},${y}`;
 function planPattern(word,pattern,hand,reserved=[]){if(!/^[가-힣]{2,3}$/.test(word)||word.length!==pattern.length||pattern.some((ch,i)=>ch&&ch!==word[i]))return null;let targets=[...word].filter((ch,i)=>!pattern[i]).flatMap(parts),counts={};hand.forEach(c=>counts[c.j]=(counts[c.j]||0)+1);let best=null;
  function walk(i,groups,score){if(i===targets.length){if(!best||score>best.score)best={groups:groups.map(g=>[...g]),score};return;}for(let option of alternatives(targets[i])){let held=reserved[i]||[],remaining=[...option];if(i%3!==1&&held.some((j,k)=>option[k]!==j))continue;let valid=true;for(let j of held){let k=remaining.indexOf(j);if(k<0){valid=false;break;}remaining.splice(k,1);}if(!valid)continue;let need={};remaining.forEach(j=>need[j]=(need[j]||0)+1);if(Object.keys(need).some(j=>need[j]>(counts[j]||0)))continue;for(let j in need)counts[j]-=need[j];walk(i+1,[...groups,option],score+option.reduce((s,j)=>s+POINTS[j],0));for(let j in need)counts[j]+=need[j];}}
@@ -290,7 +291,8 @@ function planPattern(word,pattern,hand,reserved=[]){if(!/^[가-힣]{2,3}$/.test(
 }
 
 // Layout and dependencies are generated once; confirming a word only changes room visibility.
-function generateDungeon(seed=1,count=12,retry=0,threeLetterChance=.55){let rng=seeded(seed),tiles=new Map(),rooms=[];
+function selectThreeLetterRooms(seed,count,requested){let rng=seeded((seed^0xa511e9b3)>>>0),candidates=Array.from({length:count},(_,i)=>i).filter(i=>i>=3&&i!==7);for(let i=candidates.length-1;i>0;i--){let j=Math.floor(rng()*(i+1));[candidates[i],candidates[j]]=[candidates[j],candidates[i]];}return new Set(candidates.slice(0,Math.min(candidates.length,Math.max(0,requested))));}
+function generateDungeon(seed=1,count=12,retry=0,threeLetterCount=1){let rng=seeded(seed),tiles=new Map(),rooms=[],threeLetterRooms=selectThreeLetterRooms(seed,count,threeLetterCount);
  function add(coords,parent=null,shared=null,kind='normal'){
   let room={id:rooms.length,cells:coords.map(([x,y])=>cellKey(x,y)),parent,shared,kind,depth:parent===null?0:rooms[parent].depth+1,state:parent===null?'open':'locked',word:'',score:0};
   for(let [x,y] of coords){let id=cellKey(x,y);if(!tiles.has(id))tiles.set(id,{id,x,y,fixed:'',groups:[[],[],[]]});}rooms.push(room);return room;
@@ -321,12 +323,12 @@ function generateDungeon(seed=1,count=12,retry=0,threeLetterChance=.55){let rng=
  }
  for(let attempts=0;rooms.length<count&&attempts<2000;attempts++){
   let parents=rooms.filter(r=>r.depth<14&&rooms.filter(n=>n.parent===r.id).length<2);
-  if(!parents.length)break;let parent=parents[Math.floor(rng()*parents.length)],independent=rooms.length>=7&&!rooms.some(r=>r.kind==='independent'),length=independent?2:(rng()<threeLetterChance?3:2);
+  if(!parents.length)break;let parent=parents[Math.floor(rng()*parents.length)],independent=rooms.length>=7&&!rooms.some(r=>r.kind==='independent'),length=!independent&&threeLetterRooms.has(rooms.length)?3:2;
   let proposal=independent?detached(parent,length):share(parent,length);
   if(!proposal)continue;
   add(proposal.coords,parent.id,independent?null:proposal.cell,independent?'independent':rooms.length%3===1?'seal':'normal');
  }
- if(rooms.length<count&&retry<12)return generateDungeon(seed+104729,count,retry+1,threeLetterChance);
+ if(rooms.length<count&&retry<12)return generateDungeon(seed+104729,count,retry+1,threeLetterCount);
  return {tiles,rooms,seed};
 }
 
@@ -336,7 +338,7 @@ class Dungeon{
   for(let w of words){if(!this.byLength[w.length])continue;this.byLength[w.length].push(w);[...w].forEach((ch,i)=>{let k=`${w.length}:${i}:${ch}`;if(!this.index.has(k))this.index.set(k,[]);this.index.get(k).push(w);});}
   this.config={...DUNGEON_DEFAULTS,...config};this.start(seed);
  }
-  start(seed){Object.assign(this,generateDungeon(seed,this.config.rooms,0,FIRST_FLOOR_THREE_LETTER_CHANCE));this.rng=seeded((seed^0x9e3779b9)>>>0);this.shuffle=a=>{for(let i=a.length-1;i>0;i--){let j=Math.floor(this.rng()* (i+1));[a[i],a[j]]=[a[j],a[i]];}return a;};this.floor=1;this.floorScore=0;this.totalWords=0;this.floorHistory=[];let id=0;this.draw=this.shuffle(DECK.flatMap(([j,n])=>Array.from({length:n},()=>({id:id++,j}))));this.discard=[];this.placed=[];this.grave=[];this.storage=[];this.hand=[];this.used=[];this.total=0;this.exchanges=this.config.exchanges;this.over=false;this.won=false;this.activeId=0;this.history=[];
+  start(seed){Object.assign(this,generateDungeon(seed,this.config.rooms,0,threeLetterCountForFloor(1,seed)));this.rng=seeded((seed^0x9e3779b9)>>>0);this.shuffle=a=>{for(let i=a.length-1;i>0;i--){let j=Math.floor(this.rng()* (i+1));[a[i],a[j]]=[a[j],a[i]];}return a;};this.floor=1;this.floorScore=0;this.totalWords=0;this.floorHistory=[];let id=0;this.draw=this.shuffle(DECK.flatMap(([j,n])=>Array.from({length:n},()=>({id:id++,j}))));this.discard=[];this.placed=[];this.grave=[];this.storage=[];this.hand=[];this.used=[];this.total=0;this.exchanges=this.config.exchanges;this.over=false;this.won=false;this.activeId=0;this.history=[];
    let friendly=this.shuffle(['나무','바다','사과','하늘','구름','고래','마음','바람','나비','소리'].filter(w=>this.words.has(w)))[0];
   if(friendly)for(let j of [...friendly].flatMap(parts).flatMap(j=>alternatives(j)[0])){let i=this.draw.findIndex(c=>c.j===j);if(i>=0)this.hand.push(this.draw.splice(i,1)[0]);}
    this.refill();for(let i=0;i<100&&!this.findMove();i++){this.draw.push(...this.hand);this.hand=[];this.shuffle(this.draw);this.refill();}this.checkEnd();
@@ -344,7 +346,7 @@ class Dungeon{
  get active(){return this.rooms.find(r=>r.id===this.activeId);}
  get floorTarget(){return this.config.floorBase+(this.floor-1)*this.config.floorStep;}
  get canDescend(){return !this.over&&(this.floorScore>=this.floorTarget||!this.openRooms.length);}
- descend(){if(!this.canDescend)return false;this.floorHistory.push({floor:this.floor,score:this.floorScore,words:this.used.length});this.clearDrafts();this.grave.push(...this.placed);this.placed=[];this.floor++;this.floorScore=0;this.used=[];Object.assign(this,generateDungeon(this.seed+7919,this.config.rooms+2*(this.floor-1)));this.activeId=0;this.exchanges=Math.min(this.config.exchanges,this.exchanges+2);this.refill();this.checkEnd();return true;}
+ descend(){if(!this.canDescend)return false;this.floorHistory.push({floor:this.floor,score:this.floorScore,words:this.used.length});this.clearDrafts();this.grave.push(...this.placed);this.placed=[];this.floor++;this.floorScore=0;this.used=[];let mapSeed=this.seed+7919;Object.assign(this,generateDungeon(mapSeed,this.config.rooms+2*(this.floor-1),0,threeLetterCountForFloor(this.floor,mapSeed)));this.activeId=0;this.exchanges=Math.min(this.config.exchanges,this.exchanges+2);this.refill();this.checkEnd();return true;}
  get openRooms(){return this.rooms.filter(r=>r.state==='open');}
  card(id){return this.hand.find(c=>c.id===id)||this.storage.find(c=>c.id===id)||this.placed.find(c=>c.id===id);}
  pattern(room){return room.cells.map(id=>this.tiles.get(id).fixed);}
