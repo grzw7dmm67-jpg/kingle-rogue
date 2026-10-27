@@ -280,7 +280,7 @@ function planWord(word,anchor,hand){if(anchor&&!word.startsWith(anchor))return n
 }
 function shuffle(a){for(let i=a.length-1;i>0;i--){let j=Math.floor(Math.random()*(i+1));[a[i],a[j]]=[a[j],a[i]];}return a;}
 
-const DUNGEON_DEFAULTS={rooms:18,exchanges:3,sealBase:8,sealStep:2,recoveryEvery:3,floorBase:120,floorStep:60};
+const DUNGEON_DEFAULTS={rooms:12,exchanges:3,sealBase:8,sealStep:2,recoveryEvery:3,floorBase:120,floorStep:60};
 const HAND_SIZE=8,STORAGE_SIZE=3,ANNEX_WORDS=5,FIRST_FLOOR_THREE_LETTER_CHANCE=.2;
 function seeded(seed){return ()=>{seed|=0;seed=seed+0x6D2B79F5|0;let t=Math.imul(seed^seed>>>15,1|seed);t=t+Math.imul(t^t>>>7,61|t)^t;return ((t^t>>>14)>>>0)/4294967296;};}
 const cellKey=(x,y)=>`${x},${y}`;
@@ -290,7 +290,7 @@ function planPattern(word,pattern,hand,reserved=[]){if(!/^[가-힣]{2,3}$/.test(
 }
 
 // Layout and dependencies are generated once; confirming a word only changes room visibility.
-function generateDungeon(seed=1,count=18,retry=0,threeLetterChance=.55){let rng=seeded(seed),tiles=new Map(),rooms=[];
+function generateDungeon(seed=1,count=12,retry=0,threeLetterChance=.55){let rng=seeded(seed),tiles=new Map(),rooms=[];
  function add(coords,parent=null,shared=null,kind='normal'){
   let room={id:rooms.length,cells:coords.map(([x,y])=>cellKey(x,y)),parent,shared,kind,depth:parent===null?0:rooms[parent].depth+1,state:parent===null?'open':'locked',word:'',score:0};
   for(let [x,y] of coords){let id=cellKey(x,y);if(!tiles.has(id))tiles.set(id,{id,x,y,fixed:'',groups:[[],[],[]]});}rooms.push(room);return room;
@@ -573,7 +573,7 @@ function savedNickname(){try{return localStorage.getItem(NICKNAME_KEY)||'';}catc
 function saveNickname(value){try{localStorage.setItem(NICKNAME_KEY,value);}catch{}}
 const labels={normal:'단어의 방',independent:'새 출발의 방',seal:'봉인된 방'};
 const creditsMarkup=`<h2>사전 출처·라이선스</h2><p>사전 데이터(게임용 가공본)</p><p>출처: 국립국어원 《표준국어대사전》 · <a href="https://github.com/korean-word-game/db" target="_blank" rel="noopener noreferrer">korean-word-game/db</a></p><p>라이선스: <a href="https://creativecommons.org/licenses/by-sa/2.0/kr/" target="_blank" rel="noopener noreferrer">CC BY-SA 2.0 KR</a> (사전 데이터에만 적용)</p>`;
-try{let saved=JSON.parse(localStorage.getItem('jamo-dungeon-config-v2')||'{}');for(let [k,min,max] of [['rooms',8,30],['exchanges',0,10],['sealBase',0,20],['sealStep',0,5],['recoveryEvery',1,10],['floorBase',10,1000],['floorStep',0,500]])if(Number.isInteger(saved[k])&&saved[k]>=min&&saved[k]<=max)config[k]=saved[k];}catch{}
+try{let saved=JSON.parse(localStorage.getItem('jamo-dungeon-config-v2')||'{}');if(saved.rooms===18)saved.rooms=DUNGEON_DEFAULTS.rooms;for(let [k,min,max] of [['rooms',8,30],['exchanges',0,10],['sealBase',0,20],['sealStep',0,5],['recoveryEvery',1,10],['floorBase',10,1000],['floorStep',0,500]])if(Number.isInteger(saved[k])&&saved[k]>=min&&saved[k]<=max)config[k]=saved[k];}catch{}
 function toast(msg){$('#toast').textContent=msg;$('#toast').classList.add('show');clearTimeout(toast.timer);toast.timer=setTimeout(()=>$('#toast').classList.remove('show'),3200)}
 function renderSoundToggle(){const button=$('#sound-toggle');button.textContent=`♫ 효과음 ${sfx.enabled?'끄기':'켜기'}`;button.setAttribute('aria-pressed',String(sfx.enabled));button.title=`효과음 ${sfx.enabled?'켜짐':'꺼짐'}`;}
 function show(html){$('#game-menu').open=false;$('#dialog-content').innerHTML=html;if(!$('#dialog').open)$('#dialog').showModal()}
@@ -675,8 +675,10 @@ $('#confirm').onclick=async()=>{
  selectedCard=null;exchangeMode=false;exchangeIds.clear();focusedTile=null;$('#word-input').value='';
  try{render();await revealWords(completed,result.unlocked,$('#world'),oldHand,sfx);}
  finally{animating=false;document.querySelector('main').inert=false;document.querySelector('header').inert=false;}
- toast(result.unlocked.some(r=>r.kind==='independent')?'5단어 완성 · 별실 개방':`+${result.score} · 손패 ${game.availableHand().length}장`);focusRoom();
- if(game.canDescend)toast(`지하 ${game.floor}층 · 계단 개방`);if(game.over)showResult();
+  if(game.over){showResult();return;}
+  if(game.canDescend&&!game.openRooms.length){showDescendPrompt(true);return;}
+  toast(result.unlocked.some(r=>r.kind==='independent')?'5단어 완성 · 별실 개방':`+${result.score} · 손패 ${game.availableHand().length}장`);focusRoom();
+  if(game.canDescend)toast(`지하 ${game.floor}층 · 계단 개방`);
 };
 $('#exchange-mode').onclick=()=>{if(exchangeMode){exchangeMode=false;exchangeIds.clear();}else{selectedCard=null;exchangeMode=true;}render();};
 $('#exchange-confirm').onclick=async()=>{
@@ -696,8 +698,8 @@ $('#finish').onclick=()=>{if(game.over){showResult(true);return;}show('<h2>탐�
 $('#restart').onclick=()=>{show('<h2>새 던전을 펼칠까요?</h2><p>현재 판은 종료되고 새로운 격자 지도가 생성됩니다.</p><button id="new-confirm" class="primary">새 던전 시작</button>');$('#new-confirm').onclick=()=>{$('#dialog').close();start(gameMode);};};
 $('#credits-open').onclick=()=>show(creditsMarkup);
 $('#credits-menu').onclick=()=>show(creditsMarkup);
-$('#help').onclick=()=>show(`<div class="overline">HOW TO EXPLORE</div><h2>자모를 놓고, 문을 여세요.</h2><ol><li>손패 안에서 카드를 드래그해 순서를 바꾸고, <b>지도 타일로 드래그</b>해 배치하세요. 카드 → 타일을 차례로 눌러도 됩니다.</li><li>자음·모음은 자동으로 자리를 찾아요. 쌍자음과 받침 두 가지가 가능하면 원하는 조합을 골라 주세요.</li><li>단어가 완성되면 타일이 초록색으로 빛납니다. <b>확정</b>하면 글자가 고정되고 다음 방이 열려요.</li><li>금색 테두리 안의 연결된 타일을 왼쪽에서 오른쪽, 위에서 아래로 읽습니다. 공유 길은 반드시 직각으로 교차하며 기존 단어와 같은 방향으로 덧붙지 않습니다.</li><li>교차로에서는 기존 글자가 <b>첫·중간·끝</b> 어디에나 들어갑니다. 독립 방은 글자를 공유하지 않고 새 단어로 시작해요. 길로 연결되지 않은 타일은 같은 단어가 아닙니다.</li><li><b>◆ 봉인 방만</b> 최소 점수가 필요합니다. 다른 방은 단어만 만들면 돼요.</li></ol><p>여러 열린 방에 카드를 나눠 놓아도 배치는 유지됩니다. 보충은 한 번의 공통 기회를 쓰고, 모든 방에 놓인 카드를 잠근 뒤 손패 빈자리만큼 8장까지 채웁니다. 잠긴 카드는 핸드로 돌아오지 않으며 ▧ 버튼으로 무덤에 폐기할 수 있어요. 보충 전에는 ×나 되돌리기로 배치를 풀 수 있습니다. 단어를 확정하면 그 방의 카드만 소모되고 다른 방의 배치는 남습니다. <b>지도를 한 손가락으로 드래그해 이동하고, 두 손가락으로 확대·축소하세요.</b></p><p>확정에 사용한 카드만 소모됩니다. 남은 손패는 그대로 유지하고 부족한 만큼만 뽑아 8장으로 채웁니다. 점수는 완성된 단어 전체의 자모 카드 점수 합 × 글자 수입니다. 이미 고정된 공유 글자도 처음 확정할 때 사용한 자모 카드 점수를 포함합니다. 별실은 층당 최대 한 곳이며 해당 층에서 5단어를 완성하면 열립니다. 같은 단어는 한 층에서 한 번만 사용할 수 있어요. 목표 점수를 채우면 다음 층이 열립니다. 내려갈 때 손패와 누적 점수는 유지되고 교환이 2회 회복됩니다. 층 점수는 0으로 초기화되며 초과 점수는 다음 층 목표에 이월되지 않습니다. 교환 소진 후 어떤 열린 방도 완성할 수 없으면 종료됩니다.</p><p>보강 사전 ${words.length.toLocaleString()}개를 사용해 드문 단어도 인정합니다. 새로고침하면 현재 판은 초기화됩니다.</p>`);
-$('#settings').onclick=()=>{show(`<div class="overline">PLAYTEST LAB</div><h2>다음 탐험의 규칙</h2><p>일반 방은 점수 제한이 없습니다. 아래 설정은 새 판에 적용됩니다.</p><label>1층 목표 점수<input id="cfg-floorBase" type="number" min="10" max="1000" value="${config.floorBase}"></label><label>층마다 목표 점수 증가<input id="cfg-floorStep" type="number" min="0" max="500" value="${config.floorStep}"></label><label>기본 층의 방 개수<input id="cfg-rooms" type="number" min="8" max="30" value="${config.rooms}"></label><label>보충·교환 공통 기회 (시작 / 최대)<input id="cfg-exchanges" type="number" min="0" max="10" value="${config.exchanges}"></label><label>봉인 방 기본 최소 점수<input id="cfg-sealBase" type="number" min="0" max="20" value="${config.sealBase}"></label><label>봉인 깊이당 추가 점수<input id="cfg-sealStep" type="number" min="0" max="5" value="${config.sealStep}"></label><label>공통 기회 1회 회복에 필요한 단어 수<input id="cfg-recoveryEvery" type="number" min="1" max="10" value="${config.recoveryEvery}"></label><details><summary>덱 64장 구성</summary><p>${DECK.map(([j,n,p])=>`${j} ${n}장 (${p}점)`).join(' · ')}</p></details><button id="apply-settings" class="primary">적용하고 새 던전 시작</button>`);$('#apply-settings').onclick=()=>{for(let key of Object.keys(DUNGEON_DEFAULTS)){let el=$('#cfg-'+key);if(!el.value||!el.checkValidity()){el.reportValidity();return;}}for(let key of Object.keys(DUNGEON_DEFAULTS))config[key]=Number($('#cfg-'+key).value);try{localStorage.setItem('jamo-dungeon-config-v2',JSON.stringify(config));}catch{}$('#dialog').close();start();};};
+$('#help').onclick=()=>show(`<div class="overline">HOW TO EXPLORE</div><h2>자모를 놓고, 문을 여세요.</h2><ol><li>손패 안에서 카드를 드래그해 순서를 바꾸고, <b>지도 타일로 드래그</b>해 배치하세요. 카드 → 타일을 차례로 눌러도 됩니다.</li><li>자음·모음은 자동으로 자리를 찾아요. 쌍자음과 받침 두 가지가 가능하면 원하는 조합을 골라 주세요.</li><li>단어가 완성되면 타일이 초록색으로 빛납니다. <b>확정</b>하면 글자가 고정되고 다음 방이 열려요.</li><li>금색 테두리 안의 연결된 타일을 왼쪽에서 오른쪽, 위에서 아래로 읽습니다. 공유 길은 반드시 직각으로 교차하며 기존 단어와 같은 방향으로 덧붙지 않습니다.</li><li>교차로에서는 기존 글자가 <b>첫·중간·끝</b> 어디에나 들어갑니다. 독립 방은 글자를 공유하지 않고 새 단어로 시작해요. 길로 연결되지 않은 타일은 같은 단어가 아닙니다.</li><li><b>◆ 봉인 방만</b> 최소 점수가 필요합니다. 다른 방은 단어만 만들면 돼요.</li></ol><p>여러 열린 방에 카드를 나눠 놓아도 배치는 유지됩니다. 보충은 한 번의 공통 기회를 쓰고, 모든 방에 놓인 카드를 잠근 뒤 손패 빈자리만큼 8장까지 채웁니다. 잠긴 카드는 핸드로 돌아오지 않으며 ▧ 버튼으로 무덤에 폐기할 수 있어요. 보충 전에는 ×나 되돌리기로 배치를 풀 수 있습니다. 단어를 확정하면 그 방의 카드만 소모되고 다른 방의 배치는 남습니다. <b>지도를 한 손가락으로 드래그해 이동하고, 두 손가락으로 확대·축소하세요.</b></p><p>확정에 사용한 카드만 소모됩니다. 남은 손패는 그대로 유지하고 부족한 만큼만 뽑아 8장으로 채웁니다. 점수는 완성된 단어 전체의 자모 카드 점수 합 × 글자 수입니다. 이미 고정된 공유 글자도 처음 확정할 때 사용한 자모 카드 점수를 포함합니다. 별실은 층당 최대 한 곳이며 해당 층에서 5단어를 완성하면 열립니다. 같은 단어는 한 층에서 한 번만 사용할 수 있어요. 1층에는 방 12개가 있지만 모두 만들 필요는 없고, 120점을 채우면 내려갈 수 있습니다. 모든 방을 사용하고 목표 점수도 채우면 다음 층 확인창이 자동으로 열립니다. 내려갈 때 손패와 누적 점수는 유지되고 교환이 2회 회복됩니다. 층 점수는 0으로 초기화되며 초과 점수는 다음 층 목표에 이월되지 않습니다. 교환 소진 후 어떤 열린 방도 완성할 수 없으면 종료됩니다.</p><p>보강 사전 ${words.length.toLocaleString()}개를 사용해 드문 단어도 인정합니다. 새로고침하면 현재 판은 초기화됩니다.</p>`);
+$('#settings').onclick=()=>{show(`<div class="overline">PLAYTEST LAB</div><h2>다음 탐험의 규칙</h2><p>일반 방은 점수 제한이 없습니다. 아래 설정은 새 판에 적용됩니다.</p><label>1층 목표 점수<input id="cfg-floorBase" type="number" min="10" max="1000" value="${config.floorBase}"></label><label>층마다 목표 점수 증가<input id="cfg-floorStep" type="number" min="0" max="500" value="${config.floorStep}"></label><label>1층 방 개수 (이후 층마다 2개 추가)<input id="cfg-rooms" type="number" min="8" max="30" value="${config.rooms}"></label><label>보충·교환 공통 기회 (시작 / 최대)<input id="cfg-exchanges" type="number" min="0" max="10" value="${config.exchanges}"></label><label>봉인 방 기본 최소 점수<input id="cfg-sealBase" type="number" min="0" max="20" value="${config.sealBase}"></label><label>봉인 깊이당 추가 점수<input id="cfg-sealStep" type="number" min="0" max="5" value="${config.sealStep}"></label><label>공통 기회 1회 회복에 필요한 단어 수<input id="cfg-recoveryEvery" type="number" min="1" max="10" value="${config.recoveryEvery}"></label><details><summary>덱 64장 구성</summary><p>${DECK.map(([j,n,p])=>`${j} ${n}장 (${p}점)`).join(' · ')}</p></details><button id="apply-settings" class="primary">적용하고 새 던전 시작</button>`);$('#apply-settings').onclick=()=>{for(let key of Object.keys(DUNGEON_DEFAULTS)){let el=$('#cfg-'+key);if(!el.value||!el.checkValidity()){el.reportValidity();return;}}for(let key of Object.keys(DUNGEON_DEFAULTS))config[key]=Number($('#cfg-'+key).value);try{localStorage.setItem('jamo-dungeon-config-v2',JSON.stringify(config));}catch{}$('#dialog').close();start();};};
 $('#close-dialog').onclick=()=>{$('#dialog').close();$('#dialog-content').onclick=null;};
 $('#begin-game').onclick=()=>start('casual');
 $('#daily-start').onclick=()=>start('daily');
@@ -724,7 +726,21 @@ function renderFloor(){
  $('#descend').disabled=!game.canDescend;
  $('#descend').textContent='▟';
 }
-$('#descend').onclick=()=>{if(!game.canDescend)return;show('<h2>다음 층으로 내려갈까요?</h2><p>현재 층의 남은 방은 떠나며, 미완성 타일에 잠긴 카드는 무덤으로 보냅니다. 손패와 누적 점수는 유지하고 교환 2회를 회복합니다. 다음 층 목표는 '+(game.floorTarget+game.config.floorStep)+'점입니다.</p><button id="descend-confirm" class="primary">내려가기</button>');$('#descend-confirm').onclick=()=>{if(!game.descend())return;sfx.stairs();selectedCard=null;exchangeMode=false;exchangeIds.clear();focusedTile=null;let ts=[...game.tiles.values()];bounds={minX:Math.min(...ts.map(t=>t.x)),minY:Math.min(...ts.map(t=>t.y))};$('#word-input').value='';updateScene(()=>{$('#dialog').close();render();focusRoom();toast('지하 '+game.floor+'층 · 새로운 두 칸에서 시작합니다.');});if(game.over)showResult();};};
+function showDescendPrompt(automatic=false){
+ if(!game?.canDescend)return;
+ const exhausted=!game.openRooms.length;
+ const title=automatic&&exhausted?'이 층의 모든 단어를 만들었어요.':'다음 층으로 내려갈까요?';
+ const body=exhausted?'이 층의 모든 방을 사용했습니다. 다음 층에서 새로운 던전을 시작합니다.':'현재 층의 남은 방은 떠나며, 미완성 타일에 잠긴 카드는 무덤으로 보냅니다. 손패와 누적 점수는 유지하고 교환 2회를 회복합니다.';
+ show(`<h2>${title}</h2><p>${body} 다음 층 목표는 ${game.floorTarget+game.config.floorStep}점입니다.</p><button id="descend-confirm" class="primary">내려가기</button>`);
+ $('#descend-confirm').onclick=()=>{
+  if(!game.descend())return;
+  sfx.stairs();selectedCard=null;exchangeMode=false;exchangeIds.clear();focusedTile=null;
+  let ts=[...game.tiles.values()];bounds={minX:Math.min(...ts.map(t=>t.x)),minY:Math.min(...ts.map(t=>t.y))};$('#word-input').value='';
+  updateScene(()=>{$('#dialog').close();render();focusRoom();toast('지하 '+game.floor+'층 · 새로운 두 칸에서 시작합니다.');});
+  if(game.over)showResult();
+ };
+}
+$('#descend').onclick=()=>showDescendPrompt();
 $('#annex-progress').onclick=()=>{let room=game.rooms.find(r=>r.kind==='independent');if(!room)return;if(room.state==='open'){selectRoom(room.id,true);return;}show(`<h2>별실</h2><p>이 층에서 5단어를 완성하면 독립 단어 슬롯이 한 곳 열립니다.<br>현재 ${Math.min(game.used.length,5)} / 5 · 층당 최대 1곳</p>`);};
 
 $('#supply').onclick=async()=>{if(animating||!game.canSupply)return;const previous=new Set(game.hand.map(c=>c.id)),locked=game.usedIds().length,before=game.availableHand().length;if(!game.supply())return;const drawn=Math.max(0,game.availableHand().length-before);selectedCard=null;exchangeMode=false;exchangeIds.clear();setInputBusy(true);try{render();await dealCards(previous,0,sfx);}finally{setInputBusy(false);}toast(`배치 카드 ${locked}장 잠금 · 손패 ${drawn}장 보충`);if(game.over)showResult();};
